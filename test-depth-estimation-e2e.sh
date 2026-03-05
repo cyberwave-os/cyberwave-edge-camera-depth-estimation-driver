@@ -255,7 +255,7 @@ export PATH=\"/opt/venvs/cli/bin:/opt/venvs/edge-core/bin:\$PATH\"
 
 cyberwave login --email '$TEST_EMAIL' --password '$TEST_PASSWORD'
 
-/opt/venvs/cli/bin/python3 - <<'PY'
+/opt/venvs/edge-core/bin/python3 - <<'PY'
 import json
 import os
 import subprocess
@@ -265,21 +265,27 @@ from pathlib import Path
 import httpx
 from cyberwave import Cyberwave
 from cyberwave.fingerprint import generate_fingerprint
-from cyberwave_cli.config import get_api_url
-from cyberwave_cli.credentials import load_credentials
 from cyberwave_edge_core.startup import fetch_and_run_twin_drivers
 
 driver_image = os.environ['DRIVER_IMAGE']
 base_url = os.environ.get('CYBERWAVE_BASE_URL', 'http://host.docker.internal:8000')
-creds = load_credentials()
-assert creds and creds.token, 'Missing CLI credentials/token after login'
-assert creds.workspace_uuid, 'Missing workspace UUID in CLI credentials'
+credentials_path = Path('/etc/cyberwave/credentials.json')
+assert credentials_path.exists(), f'Missing credentials file at {credentials_path}'
+credentials_payload = json.loads(credentials_path.read_text())
+token = credentials_payload.get('token')
+workspace_uuid = credentials_payload.get('workspace_uuid')
+assert token, 'Missing CLI credentials/token after login'
+assert workspace_uuid, 'Missing workspace UUID in CLI credentials'
+credentials_envs = credentials_payload.get('envs', {})
+if not isinstance(credentials_envs, dict):
+    credentials_envs = {}
+api_url = credentials_envs.get('CYBERWAVE_BASE_URL') or base_url
 
-client = Cyberwave(base_url=get_api_url(), api_key=creds.token)
+client = Cyberwave(base_url=api_url, api_key=token)
 suffix = str(int(time.time()))
 project = client.projects.create(
     name=f'Camera Depth Estimation E2E {suffix}',
-    workspace_id=creds.workspace_uuid,
+    workspace_id=workspace_uuid,
     description='E2E test for camera depth estimation driver',
 )
 environment = client.environments.create(
@@ -293,7 +299,7 @@ twin_uuid = str(twin.uuid)
 fingerprint = generate_fingerprint()
 
 headers = {
-    'Authorization': f'Token {creds.token}',
+    'Authorization': f'Token {token}',
     'Accept': 'application/json',
     'Content-Type': 'application/json',
 }
@@ -328,10 +334,10 @@ config_dir = Path('/etc/cyberwave')
 config_dir.mkdir(parents=True, exist_ok=True)
 (config_dir / 'fingerprint.json').write_text(json.dumps({'fingerprint': fingerprint}, indent=2) + '\\n')
 (config_dir / 'environment.json').write_text(
-    json.dumps({'uuid': env_uuid, 'workspace_uuid': creds.workspace_uuid, 'twin_uuids': [twin_uuid]}, indent=2) + '\\n'
+    json.dumps({'uuid': env_uuid, 'workspace_uuid': workspace_uuid, 'twin_uuids': [twin_uuid]}, indent=2) + '\\n'
 )
 
-results = fetch_and_run_twin_drivers(creds.token, env_uuid, fingerprint)
+results = fetch_and_run_twin_drivers(token, env_uuid, fingerprint)
 target = next((r for r in results if r.get('twin_uuid') == twin_uuid), None)
 assert target is not None, f'No startup result found for test twin: {results}'
 assert target.get('success') is True, f'Driver startup reported failure: {target}'
