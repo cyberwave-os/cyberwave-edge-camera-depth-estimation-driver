@@ -94,6 +94,15 @@ echo " Step 1: Starting backend locally"
 echo "=========================================="
 
 cd "$BACKEND_DIR"
+if [ ! -f "$BACKEND_DIR/.env" ]; then
+    if [ -f "$BACKEND_DIR/.env.example" ]; then
+        cp "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
+        echo "Created backend .env from .env.example for local/CI compose runs."
+    else
+        echo "ERROR: Missing $BACKEND_DIR/.env and .env.example"
+        exit 1
+    fi
+fi
 if curl -sf http://localhost:8000/healthz > /dev/null 2>&1; then
     echo "Backend is already running, skipping startup."
 else
