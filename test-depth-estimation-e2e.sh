@@ -156,7 +156,7 @@ if [ "$SKIP_BUILD" = true ]; then
         exit 1
     fi
 else
-    docker build -t "$DRIVER_IMAGE_BUILD" .
+    docker build --build-arg INSTALL_DEPTH_MODEL_DEPS=false -t "$DRIVER_IMAGE_BUILD" .
     docker rm -f "$REGISTRY_CONTAINER" 2>/dev/null || true
     docker run -d --name "$REGISTRY_CONTAINER" -p 5000:5000 registry:2
     docker tag "$DRIVER_IMAGE_BUILD" "$DRIVER_IMAGE_LOCAL"
