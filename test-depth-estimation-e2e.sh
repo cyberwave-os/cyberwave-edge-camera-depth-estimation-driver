@@ -31,6 +31,7 @@ BACKEND_DIR="$REPO_ROOT/cyberwave-backend"
 DRIVER_IMAGE_LOCAL="localhost:5000/camera-depth-estimation-e2e:latest"
 DRIVER_IMAGE_BUILD="camera-depth-estimation-e2e:latest"
 PI_SIM_IMAGE="camera-depth-estimation-pi-sim:latest"
+EDGE_CONFIG_DIR_HOST="$REPO_ROOT/.cyberwave-depth-e2e-$$"
 
 REGISTRY_CONTAINER="cyberwave-local-registry"
 RTSP_SERVER_CONTAINER="cyberwave-rgb-rtsp-server"
@@ -79,6 +80,7 @@ cleanup() {
     docker rm -f "$RTSP_SERVER_CONTAINER" 2>/dev/null || true
     docker rm -f "$REGISTRY_CONTAINER" 2>/dev/null || true
     docker rm -f cyberwave-driver-* 2>/dev/null || true
+    rm -rf "$EDGE_CONFIG_DIR_HOST" 2>/dev/null || true
     if [ "$BACKEND_STARTED" = true ]; then
         echo "Stopping backend..."
         cd "$BACKEND_DIR" && docker compose -f local.yml down --remove-orphans 2>/dev/null || true
@@ -241,13 +243,16 @@ echo "=========================================="
 echo " Step 8: Edge-core E2E run (force driver metadata)"
 echo "=========================================="
 
+mkdir -p "$EDGE_CONFIG_DIR_HOST"
 docker run --rm -i \
     --add-host=host.docker.internal:host-gateway \
     -e CYBERWAVE_BASE_URL=http://host.docker.internal:8000 \
     -e CYBERWAVE_MQTT_HOST=host.docker.internal \
     -e CYBERWAVE_ENVIRONMENT=local \
+    -e CYBERWAVE_EDGE_CONFIG_DIR="$EDGE_CONFIG_DIR_HOST" \
     -e DRIVER_IMAGE="$DRIVER_IMAGE_LOCAL" \
     -v "$DOCKER_SOCK":/var/run/docker.sock \
+    -v "$EDGE_CONFIG_DIR_HOST:$EDGE_CONFIG_DIR_HOST" \
     "$PI_SIM_IMAGE" \
     bash -c "
 set -euo pipefail
@@ -269,7 +274,8 @@ from cyberwave_edge_core.startup import fetch_and_run_twin_drivers
 
 driver_image = os.environ['DRIVER_IMAGE']
 base_url = os.environ.get('CYBERWAVE_BASE_URL', 'http://host.docker.internal:8000')
-credentials_path = Path('/etc/cyberwave/credentials.json')
+config_dir = Path(os.environ.get('CYBERWAVE_EDGE_CONFIG_DIR', '/etc/cyberwave'))
+credentials_path = config_dir / 'credentials.json'
 assert credentials_path.exists(), f'Missing credentials file at {credentials_path}'
 credentials_payload = json.loads(credentials_path.read_text())
 token = credentials_payload.get('token')
@@ -330,7 +336,6 @@ assert resp.status_code == 200, (
     f'Failed to update twin metadata: status={resp.status_code}, body={resp.text[:300]}'
 )
 
-config_dir = Path('/etc/cyberwave')
 config_dir.mkdir(parents=True, exist_ok=True)
 (config_dir / 'fingerprint.json').write_text(json.dumps({'fingerprint': fingerprint}, indent=2) + '\\n')
 (config_dir / 'environment.json').write_text(
