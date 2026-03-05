@@ -144,7 +144,16 @@ fi
 
 echo ""
 echo "=========================================="
-echo " Step 4: Building driver image + local registry push"
+echo " Step 4: Generating local Python REST SDK"
+echo "=========================================="
+
+cd "$REPO_ROOT/cyberwave-sdks"
+./python-sdk-gen.sh sdk --host localhost:8000
+echo "  ✅ Local SDK REST client generated"
+
+echo ""
+echo "=========================================="
+echo " Step 5: Building driver image + local registry push"
 echo "=========================================="
 
 cd "$SCRIPT_DIR"
@@ -165,7 +174,7 @@ fi
 
 echo ""
 echo "=========================================="
-echo " Step 5: Starting RGB camera emulator"
+echo " Step 6: Starting RGB camera emulator"
 echo "=========================================="
 
 docker rm -f "$RTSP_SERVER_CONTAINER" 2>/dev/null || true
@@ -188,7 +197,7 @@ echo "  ✅ RGB RTSP camera emulator running at rtsp://127.0.0.1:8554/camera"
 
 echo ""
 echo "=========================================="
-echo " Step 6: Building edge test (Pi simulator) image"
+echo " Step 7: Building edge test (Pi simulator) image"
 echo "=========================================="
 
 docker build \
@@ -229,7 +238,7 @@ DOCKERFILE
 
 echo ""
 echo "=========================================="
-echo " Step 7: Edge-core E2E run (force driver metadata)"
+echo " Step 8: Edge-core E2E run (force driver metadata)"
 echo "=========================================="
 
 docker run --rm -i \
