@@ -11,7 +11,7 @@
 #   5. Builds a "Pi simulator" container (CLI + edge-core + SDK)
 #   6. Inside the Pi simulator:
 #      a. Logs in via CLI
-#      b. Creates project/environment and a `cyberwave/standard-cam` twin
+#      b. Creates project/environment and a `the-robot-studio/so101` twin
 #      c. Updates twin metadata to force the just-built driver image
 #      d. Writes edge config files and runs edge-core driver discovery
 #      e. Verifies driver container is running and producing startup logs
@@ -294,7 +294,7 @@ environment = client.environments.create(
     description='E2E test env',
 )
 env_uuid = str(environment.uuid)
-twin = client.twin('cyberwave/standard-cam', environment_id=env_uuid)
+twin = client.twin('the-robot-studio/so101', environment_id=env_uuid)
 twin_uuid = str(twin.uuid)
 fingerprint = generate_fingerprint()
 
