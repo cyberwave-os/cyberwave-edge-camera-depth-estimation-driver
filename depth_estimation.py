@@ -10,8 +10,9 @@ import threading
 import time
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Protocol
 
+import cv2
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,22 @@ logger = logging.getLogger(__name__)
 DEPTH_MODEL_BACKEND_VIDEO_DEPTH_ANYTHING_STREAM = "video_depth_anything_stream"
 DEPTH_MODEL_BACKEND_DEPTH_ANYTHING_V2_ONNX = "depth_anything_v2_onnx"
 DEFAULT_DEPTH_MODEL_BACKEND = DEPTH_MODEL_BACKEND_VIDEO_DEPTH_ANYTHING_STREAM
+
+DEPTH_ANYTHING_V2_ONNX_RELEASE = "v2.0.0"
+DEPTH_ANYTHING_V2_ONNX_URLS = {
+    "vits": (
+        "https://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/"
+        "v2.0.0/depth_anything_v2_vits_dynamic.onnx"
+    ),
+    "vitb": (
+        "https://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/"
+        "v2.0.0/depth_anything_v2_vitb_dynamic.onnx"
+    ),
+    "vitl": (
+        "https://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/"
+        "v2.0.0/depth_anything_v2_vitl_dynamic.onnx"
+    ),
+}
 
 MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
     "vits": {"encoder": "vits", "features": 64, "out_channels": [48, 96, 192, 384]},
@@ -65,10 +82,29 @@ class VideoDepthAnythingConfig:
 
 @dataclass
 class DepthAnythingV2OnnxConfig:
-    """Placeholder config for the upcoming Depth-Anything-V2 ONNX backend."""
+    """Configuration for the Depth-Anything-V2 ONNX backend."""
 
     model_path: Optional[str] = None
+    model_dir: str = "/app/checkpoints"
+    encoder: str = "vits"
+    auto_download: bool = True
     input_height: int = 320
+    input_width: Optional[int] = None
+    provider: str = "cpu"
+
+    def resolved_model_path(self) -> str:
+        if self.model_path:
+            return self.model_path
+        filename = f"depth_anything_v2_{self.encoder}_dynamic.onnx"
+        return os.path.join(self.model_dir, filename)
+
+
+class DepthEstimator(Protocol):
+    """Structural interface for depth estimator backends."""
+
+    def estimate_depth(self, frame_bgr: np.ndarray) -> np.ndarray:
+        """Estimate per-pixel depth for a BGR frame."""
+        ...
 
 
 class VideoDepthAnythingEstimator:
@@ -178,16 +214,155 @@ class VideoDepthAnythingEstimator:
         return np.asarray(depth, dtype=np.float32)
 
 
+class DepthAnythingV2OnnxEstimator:
+    """Per-frame Depth-Anything-V2 estimator backed by ONNX Runtime."""
+
+    _NORM_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    _NORM_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+    def __init__(self, config: DepthAnythingV2OnnxConfig):
+        self.config = config
+        self._session: Any = None
+        self._input_name: Optional[str] = None
+        self._output_name: Optional[str] = None
+        self._input_shape: Optional[list[Any]] = None
+        self._lock = threading.Lock()
+
+    def _download_model_if_needed(self, model_path: str) -> None:
+        if os.path.exists(model_path):
+            return
+        if not self.config.auto_download:
+            raise FileNotFoundError(
+                f"ONNX model not found at '{model_path}' and auto-download is disabled."
+            )
+        model_url = DEPTH_ANYTHING_V2_ONNX_URLS.get(self.config.encoder)
+        if not model_url:
+            raise ValueError(
+                f"Unsupported ONNX encoder '{self.config.encoder}'. "
+                f"Use one of {sorted(DEPTH_ANYTHING_V2_ONNX_URLS.keys())}."
+            )
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+        logger.info(
+            "Downloading Depth-Anything-V2 ONNX model (%s) from %s",
+            DEPTH_ANYTHING_V2_ONNX_RELEASE,
+            model_url,
+        )
+        with urllib.request.urlopen(model_url, timeout=120) as response:
+            with open(model_path, "wb") as model_file:
+                shutil.copyfileobj(response, model_file)
+        logger.info("Downloaded ONNX model to %s", model_path)
+
+    def _select_providers(self, ort: Any) -> list[str]:
+        requested = (self.config.provider or "cpu").strip().lower()
+        available = set(ort.get_available_providers())
+        if requested == "cpu":
+            return ["CPUExecutionProvider"]
+        if requested == "cuda":
+            if "CUDAExecutionProvider" not in available:
+                logger.warning(
+                    "CUDAExecutionProvider requested but unavailable. Falling back to CPU."
+                )
+                return ["CPUExecutionProvider"]
+            return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        if requested == "auto":
+            providers: list[str] = []
+            if "CUDAExecutionProvider" in available:
+                providers.append("CUDAExecutionProvider")
+            providers.append("CPUExecutionProvider")
+            return providers
+        raise ValueError(
+            f"Unsupported ONNX provider '{self.config.provider}'. "
+            "Use one of: auto, cpu, cuda."
+        )
+
+    def _ensure_loaded(self) -> None:
+        if self._session is not None:
+            return
+        with self._lock:
+            if self._session is not None:
+                return
+
+            try:
+                import onnxruntime as ort
+            except Exception as exc:
+                raise RuntimeError(
+                    "Failed to import onnxruntime. Install it to use "
+                    "depth_anything_v2_onnx backend."
+                ) from exc
+
+            model_path = self.config.resolved_model_path()
+            self._download_model_if_needed(model_path)
+            providers = self._select_providers(ort)
+
+            logger.info(
+                "Loading Depth-Anything-V2 ONNX model (encoder=%s, provider=%s, path=%s)",
+                self.config.encoder,
+                ",".join(providers),
+                model_path,
+            )
+            session = ort.InferenceSession(model_path, providers=providers)
+            model_input = session.get_inputs()[0]
+            model_output = session.get_outputs()[0]
+
+            self._session = session
+            self._input_name = model_input.name
+            self._output_name = model_output.name
+            self._input_shape = list(model_input.shape)
+            logger.info("Depth-Anything-V2 ONNX model loaded")
+
+    @staticmethod
+    def _round_to_multiple_of_14(value: int) -> int:
+        rounded = int(round(value / 14.0) * 14)
+        return max(14, rounded)
+
+    def _resolve_inference_size(self, frame_h: int, frame_w: int) -> tuple[int, int]:
+        if self._input_shape and len(self._input_shape) >= 4:
+            static_h, static_w = self._input_shape[2], self._input_shape[3]
+            if isinstance(static_h, int) and isinstance(static_w, int) and static_h > 0 and static_w > 0:
+                return int(static_h), int(static_w)
+
+        target_h = max(14, int(self.config.input_height))
+        if self.config.input_width is not None and self.config.input_width > 0:
+            target_w = int(self.config.input_width)
+        else:
+            # Keep aspect ratio by default while constraining to model-friendly multiples of 14.
+            target_w = int(round((frame_w / max(1, frame_h)) * target_h))
+        return self._round_to_multiple_of_14(target_h), self._round_to_multiple_of_14(target_w)
+
+    def estimate_depth(self, frame_bgr: np.ndarray) -> np.ndarray:
+        self._ensure_loaded()
+        if self._session is None or self._input_name is None:
+            raise RuntimeError("ONNX model failed to initialize")
+
+        frame_h, frame_w = frame_bgr.shape[:2]
+        infer_h, infer_w = self._resolve_inference_size(frame_h, frame_w)
+
+        image = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        image = cv2.resize(image, (infer_w, infer_h), interpolation=cv2.INTER_CUBIC)
+        image = (image - self._NORM_MEAN) / self._NORM_STD
+        image = image.transpose(2, 0, 1)[None].astype(np.float32)
+
+        with self._lock:
+            outputs = self._session.run([self._output_name], {self._input_name: image})
+        raw = np.asarray(outputs[0], dtype=np.float32)
+        if raw.ndim == 4:
+            depth = raw[0, 0]
+        elif raw.ndim == 3:
+            depth = raw[0]
+        else:
+            raise RuntimeError(f"Unexpected ONNX output shape: {raw.shape}")
+
+        depth = cv2.resize(depth, (frame_w, frame_h), interpolation=cv2.INTER_CUBIC)
+        return depth.astype(np.float32)
+
+
 def create_depth_estimator(
     *,
     model_backend: str,
     video_depth_anything_config: VideoDepthAnythingConfig,
     depth_anything_v2_onnx_config: Optional[DepthAnythingV2OnnxConfig] = None,
-) -> VideoDepthAnythingEstimator:
+) -> DepthEstimator:
     """Create the configured depth estimator backend.
-
-    ``depth_anything_v2_onnx_config`` is intentionally unused for now and kept as
-    a placeholder until ONNX runtime support is implemented.
     """
     normalized_backend = (model_backend or "").strip().lower()
     if not normalized_backend:
@@ -197,15 +372,9 @@ def create_depth_estimator(
         return VideoDepthAnythingEstimator(video_depth_anything_config)
 
     if normalized_backend == DEPTH_MODEL_BACKEND_DEPTH_ANYTHING_V2_ONNX:
-        model_path = None
-        if depth_anything_v2_onnx_config is not None:
-            model_path = depth_anything_v2_onnx_config.model_path
-        raise NotImplementedError(
-            "Depth model backend 'depth_anything_v2_onnx' is not implemented yet. "
-            "Set metadata.depth_model_backend=video_depth_anything_stream to use the "
-            "current backend. "
-            f"Provided placeholder ONNX model path: {model_path!r}"
-        )
+        if depth_anything_v2_onnx_config is None:
+            depth_anything_v2_onnx_config = DepthAnythingV2OnnxConfig()
+        return DepthAnythingV2OnnxEstimator(depth_anything_v2_onnx_config)
 
     raise ValueError(
         f"Unsupported depth model backend '{model_backend}'. "
@@ -251,7 +420,7 @@ class DepthFramePublisher:
         self,
         mqtt_client: Any,
         twin_uuid: str,
-        estimator: VideoDepthAnythingEstimator,
+        estimator: DepthEstimator,
         *,
         publish_interval: int = 5,
         output_mode: str = "normalized_uint16",

@@ -7,6 +7,7 @@ from depth_estimation import (
     DEPTH_MODEL_BACKEND_DEPTH_ANYTHING_V2_ONNX,
     DEPTH_MODEL_BACKEND_VIDEO_DEPTH_ANYTHING_STREAM,
     DepthAnythingV2OnnxConfig,
+    DepthAnythingV2OnnxEstimator,
     DepthFramePublisher,
     VideoDepthAnythingConfig,
     VideoDepthAnythingEstimator,
@@ -95,13 +96,21 @@ def test_create_depth_estimator_video_depth_anything_backend():
     assert isinstance(estimator, VideoDepthAnythingEstimator)
 
 
-def test_create_depth_estimator_depth_anything_v2_onnx_placeholder():
-    with pytest.raises(NotImplementedError):
+def test_create_depth_estimator_depth_anything_v2_onnx_backend():
+    estimator = create_depth_estimator(
+        model_backend=DEPTH_MODEL_BACKEND_DEPTH_ANYTHING_V2_ONNX,
+        video_depth_anything_config=VideoDepthAnythingConfig(),
+        depth_anything_v2_onnx_config=DepthAnythingV2OnnxConfig(
+            model_path="/models/depth_anything_v2.onnx",
+            input_height=320,
+        ),
+    )
+    assert isinstance(estimator, DepthAnythingV2OnnxEstimator)
+
+
+def test_create_depth_estimator_unknown_backend():
+    with pytest.raises(ValueError):
         create_depth_estimator(
-            model_backend=DEPTH_MODEL_BACKEND_DEPTH_ANYTHING_V2_ONNX,
+            model_backend="not-a-real-backend",
             video_depth_anything_config=VideoDepthAnythingConfig(),
-            depth_anything_v2_onnx_config=DepthAnythingV2OnnxConfig(
-                model_path="/models/depth_anything_v2.onnx",
-                input_height=320,
-            ),
         )

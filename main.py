@@ -135,6 +135,21 @@ def _build_model_config() -> VideoDepthAnythingConfig:
 
 
 def _build_depth_anything_v2_onnx_config() -> DepthAnythingV2OnnxConfig:
+    encoder = get_first_env_value(
+        ["CYBERWAVE_METADATA_DEPTH_MODEL_ENCODER", "CYBERWAVE_DEPTH_MODEL_ENCODER"],
+        default="vits",
+    ) or "vits"
+    auto_download = parse_bool(
+        get_first_env_value(
+            ["CYBERWAVE_METADATA_DEPTH_MODEL_AUTO_DOWNLOAD", "CYBERWAVE_DEPTH_MODEL_AUTO_DOWNLOAD"],
+            default="true",
+        ),
+        default=True,
+    )
+    model_dir = get_first_env_value(
+        ["CYBERWAVE_METADATA_DEPTH_MODEL_CHECKPOINT_DIR", "CYBERWAVE_DEPTH_MODEL_CHECKPOINT_DIR"],
+        default="/app/checkpoints",
+    ) or "/app/checkpoints"
     model_path = get_first_env_value(
         ["CYBERWAVE_METADATA_DEPTH_MODEL_ONNX_PATH", "CYBERWAVE_DEPTH_MODEL_ONNX_PATH"],
         default=None,
@@ -151,7 +166,34 @@ def _build_depth_anything_v2_onnx_config() -> DepthAnythingV2OnnxConfig:
         minimum=96,
         maximum=1080,
     )
-    return DepthAnythingV2OnnxConfig(model_path=model_path, input_height=input_height)
+    input_width = parse_int(
+        get_first_env_value(
+            [
+                "CYBERWAVE_METADATA_DEPTH_MODEL_ONNX_INPUT_WIDTH",
+                "CYBERWAVE_DEPTH_MODEL_ONNX_INPUT_WIDTH",
+            ],
+            default="0",
+        ),
+        default=0,
+        minimum=0,
+        maximum=1920,
+    )
+    provider = (
+        get_first_env_value(
+            ["CYBERWAVE_METADATA_DEPTH_MODEL_ONNX_PROVIDER", "CYBERWAVE_DEPTH_MODEL_ONNX_PROVIDER"],
+            default="cpu",
+        )
+        or "cpu"
+    )
+    return DepthAnythingV2OnnxConfig(
+        model_path=model_path,
+        model_dir=model_dir,
+        encoder=encoder,
+        auto_download=auto_download,
+        input_height=input_height,
+        input_width=input_width or None,
+        provider=provider,
+    )
 
 
 async def main() -> None:

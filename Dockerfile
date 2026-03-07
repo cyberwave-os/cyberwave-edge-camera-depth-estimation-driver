@@ -29,7 +29,7 @@ RUN pip install --no-cache-dir .
 # For deterministic edge builds we install CPU wheels by default.
 RUN if [ "${INSTALL_DEPTH_MODEL_DEPS}" = "true" ]; then \
       pip install --no-cache-dir --index-url "${TORCH_INDEX_URL}" torch torchvision && \
-      pip install --no-cache-dir "einops>=0.4.1" "easydict>=1.13"; \
+      pip install --no-cache-dir "einops>=0.4.1" "easydict>=1.13" "onnxruntime>=1.18"; \
     fi
 
 RUN mkdir -p /app/.cyberwave /app/checkpoints

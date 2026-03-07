@@ -38,6 +38,7 @@ depth-model = [
     "torchvision>=0.16",
     "einops>=0.4.1",
     "easydict>=1.13",
+    "onnxruntime>=1.18",
 ]
 dev = [
     "pytest>=7.0",
