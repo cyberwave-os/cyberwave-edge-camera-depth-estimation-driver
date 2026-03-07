@@ -16,7 +16,13 @@ from typing import Any, Dict
 
 from cyberwave import Cyberwave
 
-from depth_estimation import DepthFramePublisher, VideoDepthAnythingConfig, VideoDepthAnythingEstimator
+from depth_estimation import (
+    DEFAULT_DEPTH_MODEL_BACKEND,
+    DepthAnythingV2OnnxConfig,
+    DepthFramePublisher,
+    VideoDepthAnythingConfig,
+    create_depth_estimator,
+)
 from driver_utils import (
     get_first_env_value,
     list_cv2_cameras,
@@ -128,6 +134,26 @@ def _build_model_config() -> VideoDepthAnythingConfig:
     )
 
 
+def _build_depth_anything_v2_onnx_config() -> DepthAnythingV2OnnxConfig:
+    model_path = get_first_env_value(
+        ["CYBERWAVE_METADATA_DEPTH_MODEL_ONNX_PATH", "CYBERWAVE_DEPTH_MODEL_ONNX_PATH"],
+        default=None,
+    )
+    input_height = parse_int(
+        get_first_env_value(
+            [
+                "CYBERWAVE_METADATA_DEPTH_MODEL_ONNX_INPUT_HEIGHT",
+                "CYBERWAVE_DEPTH_MODEL_ONNX_INPUT_HEIGHT",
+            ],
+            default="320",
+        ),
+        default=320,
+        minimum=96,
+        maximum=1080,
+    )
+    return DepthAnythingV2OnnxConfig(model_path=model_path, input_height=input_height)
+
+
 async def main() -> None:
     token = os.getenv("CYBERWAVE_API_KEY")
     twin_uuid = os.getenv("CYBERWAVE_TWIN_UUID")
@@ -199,8 +225,21 @@ async def main() -> None:
         fps,
     )
 
+    model_backend = (
+        get_first_env_value(
+            ["CYBERWAVE_METADATA_DEPTH_MODEL_BACKEND", "CYBERWAVE_DEPTH_MODEL_BACKEND"],
+            default=DEFAULT_DEPTH_MODEL_BACKEND,
+        )
+        or DEFAULT_DEPTH_MODEL_BACKEND
+    )
+    logger.info("Depth model backend selected: %s", model_backend)
     model_config = _build_model_config()
-    estimator = VideoDepthAnythingEstimator(model_config)
+    onnx_config_placeholder = _build_depth_anything_v2_onnx_config()
+    estimator = create_depth_estimator(
+        model_backend=model_backend,
+        video_depth_anything_config=model_config,
+        depth_anything_v2_onnx_config=onnx_config_placeholder,
+    )
 
     client = Cyberwave(api_key=token, source_type="edge")
     # Keep the same init behavior as other edge camera drivers.

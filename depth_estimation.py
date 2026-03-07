@@ -16,6 +16,10 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+DEPTH_MODEL_BACKEND_VIDEO_DEPTH_ANYTHING_STREAM = "video_depth_anything_stream"
+DEPTH_MODEL_BACKEND_DEPTH_ANYTHING_V2_ONNX = "depth_anything_v2_onnx"
+DEFAULT_DEPTH_MODEL_BACKEND = DEPTH_MODEL_BACKEND_VIDEO_DEPTH_ANYTHING_STREAM
+
 MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
     "vits": {"encoder": "vits", "features": 64, "out_channels": [48, 96, 192, 384]},
     "vitb": {"encoder": "vitb", "features": 128, "out_channels": [96, 192, 384, 768]},
@@ -57,6 +61,14 @@ class VideoDepthAnythingConfig:
         if self.checkpoint_path:
             return self.checkpoint_path
         return os.path.join(self.checkpoint_dir, self.checkpoint_filename())
+
+
+@dataclass
+class DepthAnythingV2OnnxConfig:
+    """Placeholder config for the upcoming Depth-Anything-V2 ONNX backend."""
+
+    model_path: Optional[str] = None
+    input_height: int = 320
 
 
 class VideoDepthAnythingEstimator:
@@ -164,6 +176,43 @@ class VideoDepthAnythingEstimator:
                 fp32=self.config.fp32,
             )
         return np.asarray(depth, dtype=np.float32)
+
+
+def create_depth_estimator(
+    *,
+    model_backend: str,
+    video_depth_anything_config: VideoDepthAnythingConfig,
+    depth_anything_v2_onnx_config: Optional[DepthAnythingV2OnnxConfig] = None,
+) -> VideoDepthAnythingEstimator:
+    """Create the configured depth estimator backend.
+
+    ``depth_anything_v2_onnx_config`` is intentionally unused for now and kept as
+    a placeholder until ONNX runtime support is implemented.
+    """
+    normalized_backend = (model_backend or "").strip().lower()
+    if not normalized_backend:
+        normalized_backend = DEFAULT_DEPTH_MODEL_BACKEND
+
+    if normalized_backend == DEPTH_MODEL_BACKEND_VIDEO_DEPTH_ANYTHING_STREAM:
+        return VideoDepthAnythingEstimator(video_depth_anything_config)
+
+    if normalized_backend == DEPTH_MODEL_BACKEND_DEPTH_ANYTHING_V2_ONNX:
+        model_path = None
+        if depth_anything_v2_onnx_config is not None:
+            model_path = depth_anything_v2_onnx_config.model_path
+        raise NotImplementedError(
+            "Depth model backend 'depth_anything_v2_onnx' is not implemented yet. "
+            "Set metadata.depth_model_backend=video_depth_anything_stream to use the "
+            "current backend. "
+            f"Provided placeholder ONNX model path: {model_path!r}"
+        )
+
+    raise ValueError(
+        f"Unsupported depth model backend '{model_backend}'. "
+        "Supported values: "
+        f"{DEPTH_MODEL_BACKEND_VIDEO_DEPTH_ANYTHING_STREAM}, "
+        f"{DEPTH_MODEL_BACKEND_DEPTH_ANYTHING_V2_ONNX}."
+    )
 
 
 def depth_to_uint16(

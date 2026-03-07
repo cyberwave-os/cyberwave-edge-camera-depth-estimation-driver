@@ -1,8 +1,18 @@
 import base64
 
 import numpy as np
+import pytest
 
-from depth_estimation import DepthFramePublisher, depth_to_uint16
+from depth_estimation import (
+    DEPTH_MODEL_BACKEND_DEPTH_ANYTHING_V2_ONNX,
+    DEPTH_MODEL_BACKEND_VIDEO_DEPTH_ANYTHING_STREAM,
+    DepthAnythingV2OnnxConfig,
+    DepthFramePublisher,
+    VideoDepthAnythingConfig,
+    VideoDepthAnythingEstimator,
+    create_depth_estimator,
+    depth_to_uint16,
+)
 
 
 class _DummyEstimator:
@@ -75,3 +85,23 @@ def test_depth_frame_publisher_interval_and_payload():
     decoded = base64.b64decode(depth_data["depth_binary"])
     decoded_depth = np.frombuffer(decoded, dtype=np.uint16).reshape(2, 2)
     assert decoded_depth.shape == (2, 2)
+
+
+def test_create_depth_estimator_video_depth_anything_backend():
+    estimator = create_depth_estimator(
+        model_backend=DEPTH_MODEL_BACKEND_VIDEO_DEPTH_ANYTHING_STREAM,
+        video_depth_anything_config=VideoDepthAnythingConfig(),
+    )
+    assert isinstance(estimator, VideoDepthAnythingEstimator)
+
+
+def test_create_depth_estimator_depth_anything_v2_onnx_placeholder():
+    with pytest.raises(NotImplementedError):
+        create_depth_estimator(
+            model_backend=DEPTH_MODEL_BACKEND_DEPTH_ANYTHING_V2_ONNX,
+            video_depth_anything_config=VideoDepthAnythingConfig(),
+            depth_anything_v2_onnx_config=DepthAnythingV2OnnxConfig(
+                model_path="/models/depth_anything_v2.onnx",
+                input_height=320,
+            ),
+        )
