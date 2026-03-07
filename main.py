@@ -60,7 +60,11 @@ def _validate_twin_data(twin_data: Dict[str, Any]) -> str:
     capabilities = twin_data.get("capabilities") or {}
     sensors = capabilities.get("sensors") or []
     if not sensors:
-        raise ValueError("No sensors found in twin JSON")
+        logger.warning(
+            "Twin JSON does not include capabilities.sensors. "
+            "Driver will continue with metadata-based configuration."
+        )
+        return asset_key
 
     has_depth_sensor = any(sensor.get("type") == "depth" for sensor in sensors)
     if not has_depth_sensor:
