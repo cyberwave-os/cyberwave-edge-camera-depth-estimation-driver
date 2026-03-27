@@ -225,7 +225,7 @@ ENV PATH="$CLI_VENV/bin:$EDGE_VENV/bin:$PATH"
 
 COPY ${CYBERWAVE_SDK_REL_PATH}/ /workspace/cyberwave-sdk/
 COPY cyberwave-clis/cyberwave-python-cli/ /workspace/cyberwave-cli/
-COPY cyberwave-edge-nodes/cyberwave-edge-core/ /workspace/cyberwave-edge-core/
+COPY cyberwave-edge-core/ /workspace/cyberwave-edge-core/
 
 RUN python -m venv "$CLI_VENV" && \
     "$CLI_VENV/bin/pip" install --no-cache-dir --upgrade pip setuptools wheel && \
