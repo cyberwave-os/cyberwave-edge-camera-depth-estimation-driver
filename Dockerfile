@@ -22,7 +22,12 @@ ENV PYTHONPATH="/opt/video-depth-anything"
 COPY pyproject.toml .
 COPY *.py ./
 COPY README.md .
-
+# Optional: local SDK source for pre-release CI builds (populated by E2E script before docker build).
+# An empty sdk-local/ directory is used in production builds so this step is a no-op.
+COPY sdk-local /tmp/sdk-local
+RUN if [ -f "/tmp/sdk-local/pyproject.toml" ]; then \
+      pip install --no-cache-dir "/tmp/sdk-local[camera]"; \
+    fi
 RUN pip install --no-cache-dir .
 
 # Torch Linux default wheels can pull CUDA packages that are too large for CI.
