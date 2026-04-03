@@ -6,10 +6,9 @@
 # This test validates the new camera depth-estimation driver end-to-end:
 #   1. Starts local backend (or reuses an existing one) and seeds it
 #   2. Builds the depth-estimation driver Docker image
-#   3. Pushes it to a local Docker registry (localhost:5000)
-#   4. Starts an RGB camera emulator (RTSP server + synthetic RGB publisher)
-#   5. Builds a "Pi simulator" container (CLI + edge-core + SDK)
-#   6. Inside the Pi simulator:
+#   3. Starts an RGB camera emulator (RTSP server + synthetic RGB publisher)
+#   4. Builds a "Pi simulator" container (CLI + edge-core + SDK)
+#   5. Inside the Pi simulator:
 #      a. Logs in via CLI
 #      b. Creates project/environment and a `the-robot-studio/so101` twin
 #      c. Updates twin metadata to force the just-built driver image
@@ -28,12 +27,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BACKEND_DIR="$REPO_ROOT/cyberwave-backend"
 
-DRIVER_IMAGE_LOCAL="localhost:5000/camera-depth-estimation-e2e:latest"
 DRIVER_IMAGE_BUILD="camera-depth-estimation-e2e:latest"
+# The Pi simulator mounts the host Docker socket, so the locally-built
+# image is directly available — no need for a local registry.
+DRIVER_IMAGE_LOCAL="$DRIVER_IMAGE_BUILD"
 PI_SIM_IMAGE="camera-depth-estimation-pi-sim:latest"
 EDGE_CONFIG_DIR_HOST="$REPO_ROOT/.cyberwave-depth-e2e-$$"
 
-REGISTRY_CONTAINER="cyberwave-local-registry"
 RTSP_SERVER_CONTAINER="cyberwave-rgb-rtsp-server"
 RTSP_PUBLISHER_CONTAINER="cyberwave-rgb-rtsp-publisher"
 SKIP_BUILD=false
@@ -78,7 +78,6 @@ cleanup() {
     echo "=== Cleaning up ==="
     docker rm -f "$RTSP_PUBLISHER_CONTAINER" 2>/dev/null || true
     docker rm -f "$RTSP_SERVER_CONTAINER" 2>/dev/null || true
-    docker rm -f "$REGISTRY_CONTAINER" 2>/dev/null || true
     docker rm -f cyberwave-driver-* 2>/dev/null || true
     rm -rf "$EDGE_CONFIG_DIR_HOST" 2>/dev/null || true
     if [ "$BACKEND_STARTED" = true ]; then
@@ -155,7 +154,7 @@ echo "  ✅ Local SDK REST client generated"
 
 echo ""
 echo "=========================================="
-echo " Step 5: Building driver image + local registry push"
+echo " Step 5: Building driver image"
 echo "=========================================="
 
 cd "$SCRIPT_DIR"
@@ -173,10 +172,6 @@ else
     cp -r "$REPO_ROOT/cyberwave-sdks/cyberwave-python/." sdk-local/
     docker build --build-arg INSTALL_DEPTH_MODEL_DEPS=false -t "$DRIVER_IMAGE_BUILD" .
     rm -rf sdk-local
-    docker rm -f "$REGISTRY_CONTAINER" 2>/dev/null || true
-    docker run -d --name "$REGISTRY_CONTAINER" -p 5000:5000 registry:2
-    docker tag "$DRIVER_IMAGE_BUILD" "$DRIVER_IMAGE_LOCAL"
-    docker push "$DRIVER_IMAGE_LOCAL"
 fi
 
 echo ""
