@@ -12,6 +12,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from typing import Any, Dict
 
 from cyberwave import Cyberwave
@@ -32,10 +33,15 @@ from driver_utils import (
     parse_int,
 )
 
+# Emit timestamps in UTC so driver logs line up with edge-core's logs when
+# forwarded into the same `cyberwave edge logs` stream (containers have no host
+# timezone mounted, so local time would otherwise drift from the host).
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    format="%(asctime)s.%(msecs)03d [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S UTC",
 )
+logging.Formatter.converter = time.gmtime
 logger = logging.getLogger("camera-depth-estimation-driver")
 
 
